@@ -1,0 +1,21 @@
+{
+  "name": "social-feed.ts",
+  "version": "0.0.0",
+  "description": "",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "main": "index.js",
+  "scripts": {
+    "build:userscript": "esbuild userscript.ts --bundle --outfile=bundle.js",
+    "test": "tsc --noEmit",
+    "build": "tsc -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.19",
+    "esbuild": "^0.20.0",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3"
+  }
+}
