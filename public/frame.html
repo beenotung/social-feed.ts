@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>frame</title>
+  </head>
+  <body>
+    <script>
+      setTimeout(() => {
+        window.opener.postMessage('frame ready', '*')
+      })
+
+      window.addEventListener('message', async event => {
+        if (event.origin == window.origin) return
+        console.log('input:', event.data)
+        let res = await fetch('/frame/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(event.data),
+        })
+        let json = await res.json()
+        console.log('output:', json)
+        if (!json) return
+        if (json.type == 'ack') return
+        if (json.type) {
+          window.opener.postMessage(json, '*')
+        } else {
+          console.log(json)
+        }
+      })
+    </script>
+  </body>
+</html>

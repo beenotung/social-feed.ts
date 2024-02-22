@@ -9,3 +9,7 @@ dist/
 *.tgz
 .DS_Store
 bundle.js
+db.sqlite3
+db.sqlite3-shm
+db.sqlite3-wal
+images

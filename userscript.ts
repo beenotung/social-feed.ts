@@ -1,35 +1,77 @@
+import { APIInput, APIOutput, NewPost, port } from './api'
+
 async function main() {
-  let slug = ''
+  let page_slug = ''
+  let output = injectOutput()
+
+  let version = +output.dataset.version! || 0
+  version++
+  output.dataset.version = version.toString()
+
+  let frame_origin = 'http://localhost:' + port
+  let _frame = window.open(frame_origin + '/frame.html')
+  if (!_frame) return
+  let frame = _frame
+
+  putToOutput('frame created')
+
+  await new Promise<void>(resolve => {
+    window.addEventListener('message', event => {
+      if (!isCurrentVersion()) return
+      putToOutput({ event_origin: event.origin })
+      if (event.origin != frame_origin) return
+      putToOutput(event.data)
+      if (event.data === 'frame ready') {
+        sendToFrame({ type: 'init' })
+        return
+      }
+      let output = event.data as APIOutput
+      switch (output.type) {
+        case 'init':
+          page_slug = output.page_slug
+          resolve()
+          return
+      }
+    })
+  })
 
   if (!isCurrentPage()) {
     return
   }
 
+  function putToOutput(data: any) {
+    output.value = (output.value + '\n\n' + JSON.stringify(data)).trim()
+  }
+
+  function sendToFrame(input: APIInput) {
+    frame.postMessage(input, frame_origin)
+  }
+
   function isCurrentPage() {
-    return location.pathname.replace(/^\//, '').replace(/\/$/, '') == slug
+    if (!page_slug) return true
+    return location.pathname.replace(/^\//, '').replace(/\/$/, '') == page_slug
   }
 
   function isCurrentVersion() {
-    return isCurrentPage() && +output.textarea.dataset.version! == version
+    return isCurrentPage() && +output.dataset.version! == version
   }
 
   function injectOutput() {
     let div = document.querySelector('svg title')!.closest('div')!
-    let _textarea = div.querySelector('textarea')
-    if (!_textarea) {
-      _textarea = document.createElement('textarea')
-      div.appendChild(_textarea)
+    let textarea = div.querySelector('textarea')
+    if (!textarea) {
+      textarea = document.createElement('textarea')
+      div.appendChild(textarea)
     }
-    let textarea = _textarea
     textarea.id = 'output'
-    function add(data: any) {
-      textarea.value = (textarea.value + '\n\n' + JSON.stringify(data)).trim()
-    }
-    return { textarea, add }
+    textarea.value = ''
+    return textarea
   }
 
   function collectProfile() {
-    function parseFromLastSpan(node: Element | null | undefined) {
+    function parseFromLastSpan(
+      node: Element | null | undefined,
+    ): string | null {
       if (!node) return null
       let spans = node.querySelectorAll('span')
       let span = spans[spans.length - 1]
@@ -38,16 +80,16 @@ async function main() {
     }
 
     let followers = parseFromLastSpan(
-      document.querySelector(`[href="/${slug}/followers/"]`),
+      document.querySelector(`[href="/${page_slug}/followers/"]`),
     )
 
     let following = parseFromLastSpan(
-      document.querySelector(`[href="/${slug}/following/"]`),
+      document.querySelector(`[href="/${page_slug}/following/"]`),
     )
 
     let posts = parseFromLastSpan(
       document
-        .querySelector(`[href="/${slug}/following/"]`)
+        .querySelector(`[href="/${page_slug}/following/"]`)
         ?.closest('ul')
         ?.querySelector('li'),
     )
@@ -76,13 +118,7 @@ async function main() {
 
   type PostItem = ReturnType<typeof selectPosts>[number]
 
-  type Post = {
-    id: string
-    alt: string
-    dataUrl: string
-  }
-
-  async function collectPosts(cb: (post: Post) => void) {
+  async function collectPosts() {
     let seenPosts = new Set<PostItem>()
 
     let last_posts = []
@@ -101,10 +137,18 @@ async function main() {
     for (;;) {
       let posts = await waitNewPosts()
       if (!posts) return
-      let lastPost: PostItem
+      let index = -1
       for (let post of posts) {
+        index++
         if (seenPosts.has(post)) continue
+        post.a.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        await sleep(100)
         if (!(post.img.naturalWidth * post.img.naturalHeight)) {
+          putToOutput({
+            src: post.img.src,
+            width: post.img.naturalWidth,
+            height: post.img.naturalHeight,
+          })
           continue
         }
         let canvas = document.createElement('canvas')
@@ -113,13 +157,18 @@ async function main() {
         let context = canvas.getContext('2d')!
         context.drawImage(post.img, 0, 0)
         let dataUrl = canvas.toDataURL('image/webp', 0.5)
-        cb({ id: post.id, alt: post.alt, dataUrl })
+        let newPost: NewPost = {
+          page_slug: page_slug,
+          post_slug: post.id,
+          alt: post.alt,
+          dataUrl,
+          index,
+          newer_post_slug: posts[index - 1]?.id,
+          older_post_slug: posts[index + 1]?.id,
+        }
+        sendToFrame({ type: 'post', post: newPost })
+        putToOutput({ id: post.id, alt: post.alt })
         seenPosts.add(post)
-        lastPost = post
-      }
-      lastPost ||= posts[posts.length - 1]
-      if (lastPost) {
-        lastPost.a.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }
       await sleep(1000 + Math.random() * 500)
     }
@@ -129,17 +178,17 @@ async function main() {
     return new Promise(resolve => setTimeout(resolve, ms))
   }
 
-  let output = injectOutput()
-  output.textarea.value = ''
-  let version = +output.textarea.dataset.version! || 0
-  version++
-  output.textarea.dataset.version = version.toString()
-
   let profile = collectProfile()
-  output.add(profile)
-  collectPosts(post => {
-		// TODO send to server
-    output.add(post)
+  putToOutput(profile)
+  sendToFrame({
+    type: 'page',
+    page: {
+      slug: page_slug,
+      posts: profile.posts,
+      followers: profile.followers,
+      following: profile.following,
+    },
   })
+  collectPosts()
 }
 main().catch(e => console.error(e))
